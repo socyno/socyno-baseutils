@@ -99,7 +99,11 @@ public class HttpUtil {
 		}
 		return builder.build().getURI().getRawQuery();
 	}
-	
+    
+    public static List<NameValuePair> pairQueryString(String queryString) {
+        return URLEncodedUtils.parse(queryString, Charset.forName("UTF-8"));
+    }
+    
 	@SuppressWarnings("unchecked")
 	public static Map<String, Object> fromQueryString(String queryString) {
 		Map<String, Object> params = new HashMap<>();
@@ -107,8 +111,7 @@ public class HttpUtil {
 			return params;
 		}
 		List<NameValuePair> queries = null;
-		if ((queries = URLEncodedUtils.parse(queryString,
-				Charset.forName("UTF-8"))) == null
+		if ((queries = pairQueryString(queryString)) == null
 				|| queries.size() <= 0) {
 			return params;
 		}

@@ -1,7 +1,6 @@
 package com.socyno.base.bscmixutil;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -122,22 +121,6 @@ public class ClassUtil {
             return result;
         }
         
-        private static String parseAttributeTypeFormClass(Attributes attrs, String method) {
-            try {
-                Class<?> formClass = null;
-                Method classMethod = null;
-                if ((classMethod = attrs.type().getMethod(method)) != null
-                        && (formClass = (Class<?>) classMethod.invoke(null)) != null) {
-                    return ClassUtil.classToJson(formClass).toString();
-                }
-            } catch (NoSuchMethodException | SecurityException e) {
-                
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-            return null;
-        }
-        
         private static FieldAttribute getFormCustomAttributes(String form, String field) {
             Map<String, List<FieldAttribute>> clonedAttrs = new HashMap<>(CACHED_FORMS_ATTRIBUTES);
             String previewAsCurrentForm;
@@ -175,13 +158,13 @@ public class ClassUtil {
         public static void processCommonAttributes(ObjectNode jsonNode, Attributes attrs, Class<?> clazz, String field) {
             if (attrs != null) {
                 /* 定制化筛选条件表单解析 */
-                String formClass;
-                if (StringUtils.isNotBlank(formClass = parseAttributeTypeFormClass(attrs, "getDynamicFilterFormClass"))) {
-                    jsonNode.put("dynamicFilterFormClass", formClass);
+                Class<?> filterFormClass;
+                if ((filterFormClass = getSingltonInstance(attrs.type()).getDynamicFilterFormClass()) != null) {
+                    jsonNode.put("dynamicFilterFormClass", classToJson(filterFormClass).toString());
                 }
                 /* 定制化表格行创建表单解析 */
-                if (StringUtils.isNotBlank(formClass = parseAttributeTypeFormClass(attrs, "getListItemCreationFormClass"))) {
-                    jsonNode.put("listItemCreationFormClass", formClass);
+                if ((filterFormClass = getSingltonInstance(attrs.type()).getListItemCreationFormClass()) != null) {
+                    jsonNode.put("listItemCreationFormClass", classToJson(filterFormClass).toString());
                 }
             }
             FieldAttribute fieldAttr;
