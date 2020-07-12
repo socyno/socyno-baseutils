@@ -285,6 +285,8 @@ public class ClassUtil {
     
     public static class AttributesProccessor extends CustomAttributesProccessor {
         
+        private static final String FORM_SPECIAL_FIELD_FORM = ":form";
+        
         private static final Type TYPE_FIELD_CUSTOM_DEFINITION
                     = new TypeToken<List<Map<String, String>>>() {}.getType();
         
@@ -368,7 +370,7 @@ public class ClassUtil {
         
         private static FieldCustomizedProperty getFieldCustomizedProperty(String form, String field) {
             if (StringUtils.isBlank(field)) {
-                field = ":form";
+                field = FORM_SPECIAL_FIELD_FORM;
             }
             FieldCustomizedProperty result;
             Map<String, FieldCustomizedProperty> mappedFields;
@@ -423,7 +425,8 @@ public class ClassUtil {
             try {
                 List<Method> methods = new ArrayList<>();
                 for (FieldCustomizedProperty attr : fields.values()) {
-                    if (attr == null) {
+                    if (attr == null || FORM_SPECIAL_FIELD_FORM.equals(attr.getField())
+                            || StringUtils.endsWith(attr.getField(), "*")) {
                         continue;
                     }
                     methods.add(DynamicMethodUtil.createAttributesMethod(attr.getField(), String.class, null));
@@ -482,7 +485,7 @@ public class ClassUtil {
         }
         return currActualTypes;
     }
-
+    
     public static Type[] getActualParameterizedTypes(Class<?> sourceClazz) {
         return getActualParameterizedTypes(sourceClazz, null);
     }
