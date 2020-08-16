@@ -10,6 +10,7 @@ import javax.sql.DataSource;
 import org.apache.commons.dbcp2.BasicDataSourceFactory;
 import org.apache.commons.io.IOUtils;
 
+import com.github.reinert.jjschema.v1.FieldOption;
 import com.socyno.base.bscmixutil.CommonUtil;
 import com.socyno.base.bscmixutil.StringUtils;
 
@@ -17,12 +18,29 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.Reader;
+import java.lang.reflect.Array;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.sql.*;
-import java.util.*;
+import java.lang.reflect.ParameterizedType;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Savepoint;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -535,7 +553,9 @@ public class AbstractDao {
                             Object val = data.get(key);
                             if (arraySeparater != null && val != null && CharSequence.class.isAssignableFrom(val.getClass())) {
                                 val = val.toString().split(arraySeparater);
-                                data.put(key, val);
+                                if (StringUtils.isBlank(dk)) {
+                                    data.put(key, val);
+                                }
                             }
                             if (StringUtils.isNotBlank(dk)) {
                                 data.put(dk, val);
@@ -585,6 +605,65 @@ public class AbstractDao {
                 /* String 转换 */
                 else if (String.class.equals(ptypes[0])) {
                     val = val == null ? (String) null : val.toString();
+                }
+                /* FieldOption 转换 */
+                else if (val != null && FieldOption.class.isAssignableFrom(ptypes[0])) {
+                    Object newVal = ptypes[0].getConstructor().newInstance();
+                    ((FieldOption)newVal).setOptionValue(val.toString());
+                    val = newVal;
+                }
+                /* FieldOption 数组与常用集合转换 */
+                else if (val != null && String[].class.equals(val.getClass())) {
+                    Class<?> parameterizedType;
+                    /* Array */
+                    if ((parameterizedType = ptypes[0].getComponentType()) != null
+                            && FieldOption.class.isAssignableFrom(parameterizedType)) {
+                        String[] vals = (String[]) val;
+                        Object newVal = Array.newInstance(parameterizedType, vals.length);
+                        if (vals.length > 0) {
+                            FieldOption arritem;
+                            Constructor<?> constructor = parameterizedType.getConstructor();
+                            for (int i = 0; i < vals.length; i++) {
+                                arritem = (FieldOption) constructor.newInstance();
+                                Array.set(newVal, i, arritem);
+                                arritem.setOptionValue(vals[i]);
+                            }
+                        }
+                        val = newVal;
+                    }
+                    /* Collection */
+                    else if (List.class.equals(ptypes[0]) || Set.class.equals(ptypes[0])
+                            || Collection.class.equals(ptypes[0])) {
+                        parameterizedType = (Class<?>) ((ParameterizedType)method.getGenericParameterTypes()[0])
+                                .getActualTypeArguments()[0];
+                        if (FieldOption.class.isAssignableFrom(parameterizedType)) {
+                            String[] vals = (String[]) val;
+                            @SuppressWarnings("rawtypes")
+                            Collection newVal = Set.class.equals(ptypes[0]) ? new HashSet(vals.length)
+                                    : new ArrayList(vals.length);
+                            if (vals.length > 0) {
+                                FieldOption arritem;
+                                Constructor<?> constructor = parameterizedType.getConstructor();
+                                for (int i = 0; i < vals.length; i++) {
+                                    arritem = (FieldOption) constructor.newInstance();
+                                    arritem.setOptionValue(vals[i]);
+                                    newVal.add(arritem);
+                                }
+                            }
+                            val = newVal;
+                        } else if (String.class.equals(parameterizedType)) {
+                            String[] vals = (String[]) val;
+                            @SuppressWarnings("rawtypes")
+                            Collection newVal = Set.class.equals(ptypes[0]) ? new HashSet<String>(vals.length)
+                                    : new ArrayList(vals.length);
+                            if (vals.length > 0) {
+                                for (int i = 0; i < vals.length; i++) {
+                                    newVal.add(vals[i]);
+                                }
+                            }
+                            val = newVal;
+                        }
+                    }
                 }
                 try {
                     method.invoke(obj, val);

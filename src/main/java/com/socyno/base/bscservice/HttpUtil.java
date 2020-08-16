@@ -66,11 +66,11 @@ public class HttpUtil {
 		return String.format("%s/%s", StringUtils.trimToEmpty(prefix).replaceAll("[/\\s]+$", ""),
 				StringUtils.trimToEmpty(path).replaceAll("^[/\\s]+", ""));
 	}
-
+	
 	public static String urlEncode(String value) throws UnsupportedEncodingException {
 		return URLEncoder.encode(value, "UTF-8");
 	}
-
+	
 	public static String toQueryString(Map<String, Object> params) {
 		if (params == null || params.isEmpty()) {
 			return "";

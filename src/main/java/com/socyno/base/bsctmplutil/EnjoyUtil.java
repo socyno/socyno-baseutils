@@ -1,5 +1,6 @@
 package com.socyno.base.bsctmplutil;
 
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,6 +15,11 @@ import com.jfinal.template.Template;
 public class EnjoyUtil {
     
     private static int CACHE_INDEX = 0;
+
+    static{
+        Engine.addExtensionMethod(Date.class, EnjoyDateExpand.class);
+        Engine.addExtensionMethod(String.class, EnjoyStringExpand.class);
+    }
     
     /* 缓存数据的数量， 默认为 10K 条 */
     public final static int CACHE_LIMITS = 10240;

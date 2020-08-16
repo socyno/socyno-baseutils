@@ -6,6 +6,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
@@ -13,8 +14,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -41,12 +46,17 @@ import com.socyno.base.bscexec.FormValidationException;
 import lombok.Data;
 import lombok.Getter;
 import lombok.NonNull;
+import lombok.Setter;
 import lombok.experimental.Accessors;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class ClassUtil {
     
+    public static interface DynamicSelectedEditable {
+        
+    }
+	
     @Data
     @Accessors(chain = true)
     private static class FieldCustomizedProperty {
@@ -58,43 +68,56 @@ public class ClassUtil {
         private String      fieldType;
         private String      description;
         private Map<String, String> attributes;
-        
+
+        private Attributes originAttrs;
+        private Method originMethod;
+        private Class<?> originClass;
+
         FieldCustomizedProperty() {
-            
+
         }
     }
-    
+
     @Data
     @Accessors(chain = true)
     public static class FieldAttribute {
-        private String      field;
-        private String      title;
-        private boolean     custom;
-        private boolean     editable;
-        private boolean     required;
-        private String      pattern;
-        private String      fieldType;
-        private String      description;
+
+        private final Field originField;
+        private final Method originMethod;
+        private final Class<?> originClass;
+
+        private final String field;
+        private final boolean custom;
+        private String title;
+        private boolean editable;
+        private boolean required;
+        private String pattern;
+        private String fieldType;
+        private String description;
         private List<? extends FieldOption> options;
-        
-        FieldAttribute() {
-            
+
+        FieldAttribute(Class<?> clazz, Method method, Field field, String name, boolean custom) {
+            this.field = name;
+            this.custom = custom;
+            this.originField = field;
+            this.originMethod = method;
+            this.originClass = clazz;
         }
     }
-    
+
     @Getter
     public static abstract class FieldAttributeConverter {
         private final String attribute;
-        
+
         FieldAttributeConverter(String attribute) {
             this.attribute = attribute;
         }
-        
+
         public abstract void setValue(ObjectNode node, FieldCustomizedProperty property, boolean customField, boolean modifiableForm);
-        
+
         public abstract void setValue(FieldAttribute attribute, FieldCustomizedProperty property, boolean customField, boolean modifiableForm);
     }
-    
+
     private final static FieldAttributeConverter[] customizedProperties = new FieldAttributeConverter[] {
         new FieldAttributeConverter("title") {
             @Override
@@ -114,7 +137,8 @@ public class ClassUtil {
                     node.put(getAttribute(), title);
                 }
             }
-        }, new FieldAttributeConverter("pattern") {
+        },
+        new FieldAttributeConverter("pattern") {
             @Override
             public void setValue(FieldAttribute attribute, FieldCustomizedProperty property, boolean customField,
                     boolean modifiableForm) {
@@ -132,7 +156,8 @@ public class ClassUtil {
                     node.put(getAttribute(), value);
                 }
             }
-        }, new FieldAttributeConverter("description") {
+        },
+        new FieldAttributeConverter("description") {
             @Override
             public void setValue(FieldAttribute attribute, FieldCustomizedProperty property, boolean customField,
                     boolean modifiableForm) {
@@ -150,7 +175,8 @@ public class ClassUtil {
                     node.put(getAttribute(), value);
                 }
             }
-        }, new FieldAttributeConverter("fieldType") {
+        },
+        new FieldAttributeConverter("fieldType") {
             @Override
             public void setValue(FieldAttribute attribute, FieldCustomizedProperty property, boolean customField,
                     boolean modifiableForm) {
@@ -168,80 +194,115 @@ public class ClassUtil {
                     node.put(getAttribute(), value);
                 }
             }
-        }, new FieldAttributeConverter("editable") {
+        },
+        new FieldAttributeConverter("editable") {
             @Override
             public void setValue(FieldAttribute attribute, FieldCustomizedProperty property, boolean customField,
                     boolean modifiableForm) {
+                if (property == null || property.getOriginMethod() == null) {
+                    return;
+                }
                 String value;
-                if ((customField || modifiableForm) && property != null
+                if ((customField || modifiableForm)
                         && StringUtils.isNotBlank(value = property.getEditable())) {
                     attribute.setEditable(CommonUtil.parseBoolean(value));
                 }
+                Class<?> clazz;
+                if ((clazz = property.getOriginClass()) != null
+                        && AttributesProccessor.hasEditableSelector(clazz)) {
+                    attribute.setEditable(AttributesProccessor.isEditableField(clazz, property.getField()));
+                }
             }
             
             @Override
             public void setValue(ObjectNode node, FieldCustomizedProperty property, boolean customField,
                     boolean modifiableForm) {
+                if (property == null || property.getOriginMethod() == null) {
+                    return;
+                }
                 String value;
-                if ((customField || modifiableForm) && property != null
+                if ((customField || modifiableForm)
                         && StringUtils.isNotBlank(value = property.getEditable())) {
-                    node.put(getAttribute(), CommonUtil.parseBoolean(value));
+                    node.put("readonly", !CommonUtil.parseBoolean(value));
+                }
+                Class<?> clazz;
+                if ((clazz = property.getOriginClass()) != null
+                        && AttributesProccessor.hasEditableSelector(clazz)) {
+                    node.put("readonly", !AttributesProccessor.isEditableField(clazz, property.getField()));
                 }
             }
-        }, new FieldAttributeConverter("required") {
+        },
+        new FieldAttributeConverter("required") {
             @Override
             public void setValue(FieldAttribute attribute, FieldCustomizedProperty property, boolean customField,
                     boolean modifiableForm) {
+                if (property == null || property.getOriginMethod() == null) {
+                    return;
+                }
                 String value;
-                if ((customField || modifiableForm) && property != null
+                if ((customField || modifiableForm)
                         && StringUtils.isNotBlank(value = property.getRequired())) {
                     attribute.setRequired(CommonUtil.parseBoolean(value));
+                }
+                Class<?> clazz;
+                if ((clazz = property.getOriginClass()) != null
+                        && AttributesProccessor.hasRequiredSelector(clazz)
+                        && AttributesProccessor.isRequiredField(clazz, property.getField())) {
+                    attribute.setRequired(true);
                 }
             }
             
             @Override
             public void setValue(ObjectNode node, FieldCustomizedProperty property, boolean customField,
                     boolean modifiableForm) {
+                if (property == null || property.getOriginMethod() == null) {
+                    return;
+                }
                 String value;
-                if ((customField || modifiableForm) && property != null
+                if ((customField || modifiableForm)
                         && StringUtils.isNotBlank(value = property.getRequired())) {
                     node.put(getAttribute(), CommonUtil.parseBoolean(value));
+                }
+                Class<?> clazz;
+                if ((clazz = property.getOriginClass()) != null
+                        && AttributesProccessor.hasRequiredSelector(clazz)) {
+                    node.put(getAttribute(), AttributesProccessor.isRequiredField(clazz, property.getField()));
                 }
             }
         }
     };
-    
+
     @Getter
     public static class AttributeException extends MessageException {
-        
+
         private static final long serialVersionUID = 1L;
-        
+
         private final String clazz;
-        
+
         public AttributeException(String clazz, Exception e) {
             super("", e);
             this.clazz = clazz;
         }
     }
-    
+
     public static class DynamicMethodUtil {
-        
+
         @Attributes()
         public String get$$templated$$() {
             return null;
         }
-        
+
         public static Object getFieldValue(@NonNull Object object, String field)
                 throws IllegalAccessException, NoSuchFieldException {
             Field feildDef = object.getClass().getDeclaredField(field);
             feildDef.setAccessible(true);
             return feildDef.get(object);
         }
-        
+
         public static boolean isDynamicMethod(@NonNull Method method) {
             return DynamicMethodUtil.class.isAssignableFrom(method.getDeclaringClass());
         }
-        
+
         @SuppressWarnings("unchecked")
         public static void setAnnotationAttr(Annotation annotation, String attr, Object value)
                 throws NoSuchFieldException, IllegalAccessException {
@@ -250,7 +311,7 @@ public class ClassUtil {
             valuesFeld.setAccessible(true);
             ((Map<String, Object>) valuesFeld.get(hanlder)).put(attr, value);
         }
-        
+
         public static Method createAttributesMethod(@NonNull String method, @NonNull Class<?> returnType, Map<String, Object> attributes)
                 throws Exception {
             if (!method.startsWith("get") && !method.startsWith("is")) {
@@ -266,7 +327,7 @@ public class ClassUtil {
                     method,
                     getFieldValue(tmpl, "parameterTypes"),
                     returnType,
-                    getFieldValue(tmpl, "exceptionTypes"), 
+                    getFieldValue(tmpl, "exceptionTypes"),
                     getFieldValue(tmpl, "modifiers"),
                     getFieldValue(tmpl, "slot"),
                     getFieldValue(tmpl, "signature"),
@@ -282,29 +343,92 @@ public class ClassUtil {
             return copied;
         }
     }
-    
+
+    @Getter
+    @Setter
+    private static class MatchTags {
+        private boolean hasRequiredSelector = false;
+        private boolean hasEditableSelector = false;
+        private final Set<String> requireds = new HashSet<>();
+        private final Set<String> editables = new HashSet<>();
+    }
+
     public static class AttributesProccessor extends CustomAttributesProccessor {
-        
+
         private static final String FORM_SPECIAL_FIELD_FORM = ":form";
-        
+
         private static final Type TYPE_FIELD_CUSTOM_DEFINITION
-                    = new TypeToken<List<Map<String, String>>>() {}.getType();
-        
+                = new TypeToken<List<Map<String, String>>>() {}.getType();
+
         private static final Map<String, List<FieldCustomizedProperty>> CACHED_FORMS_ATTRIBUTES
-                    = new ConcurrentHashMap<>();
-        
+                = new ConcurrentHashMap<>();
+
         private static final ThreadLocal<String> CUSTOM_PREVIES_ATTRIBUTES = new ThreadLocal<>();
+
+        private static final ThreadLocal<Map<Class<?>, MatchTags>> TAG_MATCHED_RESULT = new ThreadLocal<>();
+        
+        private static MatchTags getMatchTags(Class<?> clazz) {
+            Map<Class<?>, MatchTags> cached;
+            if ((cached = TAG_MATCHED_RESULT.get()) == null) {
+                return null;
+            }
+            return cached.get(clazz);
+        }
+        
+        private static MatchTags getOrNewMatchTags(Class<?> clazz) {
+            Map<Class<?>, MatchTags> cached;
+            if ((cached = TAG_MATCHED_RESULT.get()) == null) {
+                TAG_MATCHED_RESULT.set(cached = new HashMap<>());
+            }
+            MatchTags matchTags;
+            if ((matchTags = cached.get(clazz)) == null) {
+                cached.put(clazz, matchTags = new MatchTags());
+            }
+            return matchTags;
+        }
+        
+        public static boolean hasRequiredSelector(Class<?> clazz) {
+            MatchTags matchTags;
+            if ((matchTags = getMatchTags(clazz)) != null) {
+                return matchTags.isHasRequiredSelector();
+            }
+            return false;
+        }
+        
+        public static boolean hasEditableSelector(Class<?> clazz) {
+            MatchTags matchTags;
+            if ((matchTags = getMatchTags(clazz)) != null) {
+                return matchTags.isHasEditableSelector();
+            }
+            return false;
+        }
+        
+        public static boolean isRequiredField(Class<?> clazz, String field) {
+            MatchTags matchTags;
+            if ((matchTags = getMatchTags(clazz)) != null) {
+                return matchTags.getRequireds().contains(field);
+            }
+            return false;
+        }
+        
+        public static boolean isEditableField(Class<?> clazz, String field) {
+            MatchTags matchTags;
+            if ((matchTags = getMatchTags(clazz)) != null) {
+                return matchTags.getEditables().contains(field);
+            }
+            return false;
+        }
         
         public static String setContextPreviewAttributes(String form, String attrsForPreview) {
             String origin = CUSTOM_PREVIES_ATTRIBUTES.get();
             CUSTOM_PREVIES_ATTRIBUTES.set(String.format("%s/%s", form, attrsForPreview));
             return origin;
         }
-        
+
         public static void resetContextPreviewAttributes(String attrsForPreview) {
             CUSTOM_PREVIES_ATTRIBUTES.set(attrsForPreview);
         }
-        
+
         public static void setCustomFormAttributes(String form, List<FieldCustomizedProperty> attributes) {
             CACHED_FORMS_ATTRIBUTES.put(form, attributes);
         }
@@ -312,7 +436,7 @@ public class ClassUtil {
         public static void removeCustomFormAttributes(String form) {
             CACHED_FORMS_ATTRIBUTES.remove(form);
         }
-        
+
         public static List<FieldCustomizedProperty> parseFormCustomizedProperties(String clazz, String formAttrs) {
             if (StringUtils.isBlank(formAttrs)) {
                 return Collections.emptyList();
@@ -367,7 +491,7 @@ public class ClassUtil {
             }
             return result;
         }
-        
+
         private static FieldCustomizedProperty getFieldCustomizedProperty(String form, String field) {
             if (StringUtils.isBlank(field)) {
                 field = FORM_SPECIAL_FIELD_FORM;
@@ -387,12 +511,15 @@ public class ClassUtil {
             }
             return result;
         }
-        
+
         public static void processCommonAttributes(ObjectNode jsonNode, Attributes attrs, Class<?> clazz, String field, Method method) {
             if (attrs != null) {
                 /* 定制化筛选条件表单解析 */
                 Class<?> filterFormClass;
                 if ((filterFormClass = getSingltonInstance(attrs.type()).getDynamicFilterFormClass()) != null) {
+                    if (DynamicSelectedEditable.class.isAssignableFrom(filterFormClass)) {
+                        jsonNode.put("dynamicSelectedEditable", true);
+                    }
                     jsonNode.put("dynamicFilterFormClass", classToJson(filterFormClass).toString());
                 }
                 /* 定制化表格行创建表单解析 */
@@ -404,11 +531,15 @@ public class ClassUtil {
             boolean modifiable;
             jsonNode.put("custom", (custom = method != null && DynamicMethodUtil.isDynamicMethod(method)));
             jsonNode.put("modifiable", (modifiable = InternalFieldsModifiable.class.isAssignableFrom(clazz)));
-            FieldCustomizedProperty fieldAttr;
-            if (jsonNode == null || clazz == null
-                    || (fieldAttr = getFieldCustomizedProperty(clazz.getName(), field)) == null) {
+
+            if (jsonNode == null || clazz == null) {
                 return;
             }
+            FieldCustomizedProperty fieldAttr;
+            if ((fieldAttr = getFieldCustomizedProperty(clazz.getName(), field)) == null) {
+                fieldAttr = new FieldCustomizedProperty().setField(field);
+            }
+            fieldAttr.setOriginClass(clazz).setOriginMethod(method).setOriginAttrs(attrs);
             for (FieldAttributeConverter converter : customizedProperties) {
                 converter.setValue(jsonNode, fieldAttr, custom, modifiable);
             }
@@ -435,6 +566,111 @@ public class ClassUtil {
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
+        }
+        public static void filterDynamicMethods(Class<?> clazz, CustomSchemaWrapper.MethodField methodField) {
+            MatchTags matchTags = getOrNewMatchTags(clazz);
+            matchTags.getRequireds().clear();
+            matchTags.getEditables().clear();
+            matchTags.setHasEditableSelector(false);
+            matchTags.setHasRequiredSelector(false);
+            if(clazz == null || methodField == null || methodField.size() <= 0){
+                return;
+            }
+            Attributes classAttributes = clazz.getAnnotation(Attributes.class);
+            if(classAttributes == null){
+                return;
+            }
+            String [] visibleSelectors = classAttributes.visibleSelector();
+            String [] requiredSelectors = classAttributes.requiredSelector();
+            String [] editableSelectors = classAttributes.editableSelector();
+            Attributes propAttributes = null;
+            if (visibleSelectors.length > 0) {
+                for (Iterator<Map.Entry<Method, Field>> iter = methodField.entrySet().iterator(); iter.hasNext();){
+                    Map.Entry<Method,Field> item = iter.next();
+                    Field f = item.getValue();
+                    Method m = item.getKey();
+                    if (f == null && m == null) {
+                        iter.remove();
+                        continue;
+                    }
+                    /**
+                     * 表单自定义字段将始终被保留
+                     */
+                    if (DynamicMethodUtil.isDynamicMethod(m)) {
+                        continue;
+                    }
+                    if(f != null && f.getAnnotation(Attributes.class) != null){
+                        propAttributes =  f.getAnnotation(Attributes.class);
+                    }else {
+                        propAttributes = m.getAnnotation(Attributes.class);
+                    }
+                    if (propAttributes == null) {
+                        iter.remove();
+                        continue;
+                    }
+                    String [] visibleTags =  propAttributes.visibleTags();
+                    if (!getIntersection(visibleSelectors, visibleTags)) {
+                        iter.remove();
+                    }
+                }
+            }
+            if (requiredSelectors != null && requiredSelectors.length > 0) {
+                matchTags.setHasRequiredSelector(true);
+            }
+            if (editableSelectors != null && editableSelectors.length > 0) {
+                matchTags.setHasEditableSelector(true);
+            }
+            if (!matchTags.isHasRequiredSelector() && !matchTags.isHasEditableSelector()) {
+                return;
+            }
+            String field;
+            for (Map.Entry<Method, Field> entry : methodField.entrySet()) {
+                Field f = entry.getValue();
+                Method m = entry.getKey();
+                if (f == null && m == null) {
+                    continue;
+                }
+                if (StringUtils.isBlank(field = PropertyWrapper.parsePropertyName(CommonUtil.ifNull(f, m)))) {
+                    continue;
+                }
+                if (f == null || (propAttributes = f.getAnnotation(Attributes.class)) == null) {
+                    propAttributes = m.getAnnotation(Attributes.class);
+                }
+                if (propAttributes == null) {
+                    continue;
+                }
+                String[] requiredTags = propAttributes.requiredTags();
+                String[] editableTags = propAttributes.editableTags();
+                if (getIntersection(requiredSelectors, requiredTags)) {
+                    matchTags.getRequireds().add(field);
+                }
+                if (getIntersection(editableSelectors, editableTags)) {
+                    matchTags.getEditables().add(field);
+                }
+            }
+        }
+
+        /** 获取两个数组的交集 **/
+        private static boolean getIntersection(String [] firstArray, String [] secondArray){
+            boolean res = false;
+            if(firstArray == null || firstArray.length == 0 || secondArray == null || secondArray.length == 0) {
+                return false;
+            }
+            Map<String, Integer> map = new HashMap<String, Integer>();
+            for(int i = 0;i < firstArray.length;i ++) {
+                String key = firstArray[i];
+                if(!map.containsKey(key)){
+                    map.put(key, 1);
+                }
+            }
+            for(int j = 0;j < secondArray.length;j ++) {
+                String key = secondArray[j];
+                if(map.containsKey(key)) {
+                    res = true;
+                    break;
+                }
+            }
+            return res;
         }
     }
     
@@ -508,6 +744,28 @@ public class ClassUtil {
         return types[index];
     }
     
+    public static List<Field> parseAllFields(@NonNull Class<?> clazz) throws IllegalAccessException {
+        return parseAllFields(clazz, null);
+    }
+    
+    private static List<Field> parseAllFields(@NonNull Class<?> clazz, List<Field> collector)
+            throws IllegalAccessException {
+        if (Object.class.equals(clazz)) {
+            return null;
+        }
+        if (collector == null) {
+            collector = new LinkedList<>();
+        }
+        for (Field field : clazz.getDeclaredFields()) {
+            collector.add(field);
+        }
+        Class<?> superClazz;
+        if ((superClazz = clazz.getSuperclass()) != null) {
+            parseAllFields(superClazz, collector);
+        }
+        return collector;
+    }
+    
     /**
      * 将 class 转换成 json schema
      */
@@ -531,10 +789,13 @@ public class ClassUtil {
     /**
      * 解析 Class 中的字段属性定义(通过 jjschema/Attributes 注解)
      */
-    public static List<FieldAttribute> parseClassFields(@NonNull Class<?> clazz) throws Exception{
-        List<FieldAttribute> result = new ArrayList<>();
-        Map<Method, Field> properties = CustomSchemaWrapper.findProperties(clazz);
-        for (Map.Entry<Method, Field> property : properties.entrySet()) {
+    public static List<FieldAttribute> parseClassFields(@NonNull Class<?> clazz) throws Exception {
+        Class<? extends CustomAttributesProccessor> originParser = JJSchemaUtil.getCustomAttributesParser();
+        JJSchemaUtil.setCustomAttributesParser(AttributesProccessor.class);
+        try {
+            List<FieldAttribute> result = new ArrayList<>();
+            Map<Method, Field> properties = CustomSchemaWrapper.findProperties(clazz);
+            for (Map.Entry<Method, Field> property : properties.entrySet()) {
             String field;
             AccessibleObject prop;
             if ((prop = CommonUtil.ifNull(property.getValue(), property.getKey())) == null
@@ -558,20 +819,35 @@ public class ClassUtil {
                 if (nameTypeEntity != null && FieldOptionsType.STATIC.equals(nameTypeEntity.getOptionsType())) {
                     options = nameTypeEntity.getStaticOptions();
                 }
-            }
-            FieldAttribute finalAttrs = new FieldAttribute().setField(field).setTitle(title).setEditable(editable)
-                        .setRequired(required).setPattern(pattern).setDescription(description)
-                        .setOptions(options).setCustom(DynamicMethodUtil.isDynamicMethod(property.getKey()));
-            FieldCustomizedProperty customAttrs;
-            if ((customAttrs = AttributesProccessor.getFieldCustomizedProperty(clazz.getName(), field)) != null) {
+                }
+                FieldAttribute finalAttrs = new FieldAttribute(
+                        clazz,
+                        property.getKey(),
+                        property.getValue(),
+                        field,
+                        DynamicMethodUtil.isDynamicMethod(property.getKey())
+                )
+                        .setTitle(title)
+                        .setEditable(editable)
+                        .setRequired(required)
+                        .setPattern(pattern)
+                        .setDescription(description)
+                        .setOptions(options);
+                FieldCustomizedProperty customAttrs;
+                if ((customAttrs = AttributesProccessor.getFieldCustomizedProperty(clazz.getName(), field)) == null) {
+                    customAttrs = new FieldCustomizedProperty().setField(field);
+                }
+                customAttrs.setOriginClass(clazz).setOriginMethod(property.getKey()).setOriginAttrs(fieldAttributes);
                 for (FieldAttributeConverter converter : customizedProperties) {
                     converter.setValue(finalAttrs, customAttrs, finalAttrs.isCustom(),
                             InternalFieldsModifiable.class.isAssignableFrom(clazz));
-                } 
+                }
+                result.add(finalAttrs);
             }
-            result.add(finalAttrs);
+            return result;
+        } finally {
+            JJSchemaUtil.setCustomAttributesParser(originParser);
         }
-        return result;
     }
     /**
      * 根据字段的定义，检查给定对要是否符合规范
@@ -636,7 +912,8 @@ public class ClassUtil {
                                 String.format("字段（%s）的值(%s)不在可选范围", field.getTitle(), unknownFound));
                     }
                 }
-                if (StringUtils.isNotBlank(field.getPattern())) {
+                if (StringUtils.isNotBlank(field.getPattern()) && (CharSequence.class.equals(fieldValue.getClass())
+                        || Number.class.equals(fieldValue.getClass()))) {
                     Pattern valueRegexp = null;
                     try {
                         valueRegexp = Pattern.compile(field.getPattern(), Pattern.DOTALL);
