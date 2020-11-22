@@ -1,4 +1,4 @@
-package com.socyno.base.bscsshutil;
+package com.socyno.base.bscmixutil;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+//import java.util.UUID;
 
 import javax.mail.internet.MimeUtility;
 import javax.servlet.http.HttpServletResponse;
@@ -32,7 +33,6 @@ import com.jcraft.jsch.Session;
 import com.jcraft.jsch.SftpATTRS;
 import com.jcraft.jsch.SftpException;
 import com.jcraft.jsch.UserInfo;
-import com.socyno.base.bscmixutil.StringUtils;
 
 @Slf4j
 public class SshClient {
@@ -229,60 +229,31 @@ public class SshClient {
         final CharsetDecoder decoder = chartSet.newDecoder();
         
         try {
-            JSch jsch=new JSch();
-            session = jsch.getSession(user, host, port);
-            session.setUserInfo( new UserInfo() {
-                @Override
-                public String getPassphrase() {
-                    return passphrase;
-                }
-                @Override
-                public String getPassword() {
-                    return password;
-                }
-                @Override
-                public boolean promptPassphrase(String msg) {
-                    return true;
-                }
-                @Override
-                public boolean promptPassword(String msg) {
-                    return true;
-                }
-                @Override
-                public boolean promptYesNo(String msg) {
-                    return true;
-                }
-                @Override
-                public void showMessage(String msg) {
-                    return;
-                }
-          } );
-          session.connect(timeout);
-          channel = (ChannelExec)session.openChannel("exec");
-          channel.setCommand(command);
-          channel.setInputStream(null);
-          InputStream input = channel.getInputStream();
-          InputStream error = channel.getErrStream();
-          
-          channel.connect(timeout);
-          
-          int bytesLeftErr = 0;
-          int bytesLeftOut = 0;
-          int fetchedRealen = 0;
-          int fetchedExplen = 1024;
-          byte[] bufferFetched = new byte[fetchedExplen];
-          byte[] bufferBytesOut = new byte[fetchedExplen + 10];
-          byte[] bufferBytesErr = new byte[fetchedExplen + 10];
-          while( true ) {
-              monitor.beforceFetchMessage();
-              while ( input.available() > 0 ) {
-                  consoleBuffer.setLength(0);
-                  if ( (fetchedRealen=input.read(bufferFetched, 0, fetchedExplen)) < 0 ) {
-                      break;
-                  }
-                  System.arraycopy(bufferFetched, 0, bufferBytesOut, bytesLeftOut, fetchedRealen);
-                  if ( (bytesLeftOut=stringBufferAppend(consoleBuffer, bufferBytesOut, 
-                          decoder, 0, bytesLeftOut + fetchedRealen)) > 0 ) {
+            session = getSession(host, user, password, passphrase, port, timeout);
+            channel = (ChannelExec) session.openChannel("exec");
+            channel.setCommand(command);
+            channel.setInputStream(null);
+            InputStream input = channel.getInputStream();
+            InputStream error = channel.getErrStream();
+            channel.connect(timeout);
+            
+            int bytesLeftErr = 0;
+            int bytesLeftOut = 0;
+            int fetchedRealen = 0;
+            int fetchedExplen = 1024;
+            byte[] bufferFetched = new byte[fetchedExplen];
+            byte[] bufferBytesOut = new byte[fetchedExplen + 10];
+            byte[] bufferBytesErr = new byte[fetchedExplen + 10];
+            while (true) {
+                monitor.beforceFetchMessage();
+                while (input.available() > 0) {
+                    consoleBuffer.setLength(0);
+                    if ((fetchedRealen = input.read(bufferFetched, 0, fetchedExplen)) < 0) {
+                        break;
+                    }
+                    System.arraycopy(bufferFetched, 0, bufferBytesOut, bytesLeftOut, fetchedRealen);
+                    if ((bytesLeftOut = stringBufferAppend(consoleBuffer, bufferBytesOut, decoder, 0,
+                            bytesLeftOut + fetchedRealen)) > 0) {
                       System.arraycopy(bufferFetched, fetchedRealen - bytesLeftOut, bufferBytesOut, 0, bytesLeftOut);
                   }
                   if ( consoleBuffer.length() > 0 ) {
@@ -291,14 +262,14 @@ public class SshClient {
               }
               while ( error.available() > 0  ) {
                   consoleBuffer.setLength(0);
-                  if ( (fetchedRealen=error.read(bufferFetched, 0, fetchedExplen)) < 0 ) {
-                      break;
-                  }
-                  System.arraycopy(bufferFetched, 0, bufferBytesErr, bytesLeftErr, fetchedRealen);
-                  if ( (bytesLeftErr=stringBufferAppend(consoleBuffer, bufferBytesErr, 
-                          decoder, 0, bytesLeftErr + fetchedRealen)) > 0 ) {
-                      System.arraycopy(bufferFetched, fetchedRealen - bytesLeftErr, bufferBytesErr, 0, bytesLeftErr);
-                  }
+                    if ((fetchedRealen = error.read(bufferFetched, 0, fetchedExplen)) < 0) {
+                        break;
+                    }
+                    System.arraycopy(bufferFetched, 0, bufferBytesErr, bytesLeftErr, fetchedRealen);
+                    if ((bytesLeftErr = stringBufferAppend(consoleBuffer, bufferBytesErr, decoder, 0,
+                            bytesLeftErr + fetchedRealen)) > 0) {
+                        System.arraycopy(bufferFetched, fetchedRealen - bytesLeftErr, bufferBytesErr, 0, bytesLeftErr);
+                    }
                   if ( consoleBuffer.length() > 0 ) {
                       monitor.errorMessageFetched(consoleBuffer.toString());
                   }
@@ -310,10 +281,12 @@ public class SshClient {
                   resultStatus = channel.getExitStatus();
                   break;
               }
-              monitor.afterFetchMessage();
-              try { Thread.sleep(1000); }
-              catch (Exception e) {}
-          }
+                monitor.afterFetchMessage();
+                try {
+                    Thread.sleep(1000);
+                } catch (Exception e) {
+                }
+            }
         } catch(Exception e){
             log.error(e.toString() ,e);
             consoleBuffer.append(e.toString());
@@ -408,16 +381,25 @@ public class SshClient {
     }
     
     @SuppressWarnings("serial")
-    private static Session getSession(
-            String host,
-            String user,
-            final String password,
-            final String passphrase,
-            int port,
-            int timeout) throws JSchException {
+    private static Session getSession(String host, String user, final String password, final String passphrase,
+            int port, int timeout) throws JSchException {
         JSch jsch = new JSch();
+        final String keyStarts = "sshkey:";
+        if (StringUtils.startsWith(password, keyStarts)) {
+            String[] sshKeys;
+            if ((sshKeys = StringUtils.split(password.substring(keyStarts.length()), "[,:]+",
+                    StringUtils.STR_NONBLANK)) == null || sshKeys.length < 2) {
+                throw new JSchException("Invalid ssh keys provided");
+            }
+            byte[] keyPassphrase = null;
+            if (sshKeys.length > 2) {
+                keyPassphrase = sshKeys[2].getBytes();
+            }
+            jsch.addIdentity("kdssh-identity", Base64Util.decode(sshKeys[0]), Base64Util.decode(sshKeys[1]),
+                    keyPassphrase);
+        }
         Session session = jsch.getSession(user, host, port);
-        session.setUserInfo( new UserInfo() {
+        session.setUserInfo(new UserInfo() {
                 @Override
                 public String getPassphrase() {
                     return passphrase;
@@ -441,12 +423,15 @@ public class SshClient {
                 @Override
                 public void showMessage(String msg) {
                     return;
-                }
-        } );
-        session.setConfig( new Properties() { {
-            put("StrictHostKeyChecking", "no");
-        } } ); 
-        session.connect(timeout<=0 ? DEFAULT_TIMEOUT : timeout);
+            }
+        });
+        session.setConfig(new Properties() {
+            {
+                put("HashKnownHosts", "yes");
+                put("StrictHostKeyChecking", "no");
+            }
+        });
+        session.connect(timeout <= 0 ? DEFAULT_TIMEOUT : timeout);
         return session;
     }
     
@@ -629,7 +614,7 @@ public class SshClient {
             final String user,
             final String password,
             String filePath,
-            AbstractDownloadHandler handler
+            DownloadHandler handler
     		) throws JSchException, SftpException, IOException  {
     	if (StringUtils.isBlank(filePath)) {
             return false;
@@ -1049,4 +1034,72 @@ public class SshClient {
             }
         }
     }
+    
+    public static abstract class DownloadHandler {
+        public abstract void process(InputStream stream) throws IOException;
+    }
+    
+//    public static void main(String[] args) throws IOException, JSchException, SftpException {
+////        final String tmpcmd = String.format("/tmp/%s", UUID.randomUUID());
+////        File command = new File("D:/ivysettings/repository/ivy-cache/xerces");
+////        putFile("192.168.47.10", "root", "111111", command, tmpcmd, new FileMonitor() {
+////            @Override
+////            public void afterFileTransfer(String destPath) {
+////                System.err.println(destPath);
+////            }
+////            
+////            @Override
+////            public void allFilesTransfered(Session session, List<String> result) {
+////                System.err.println("CCCCCCCCCCCCCCCCCCCCCCCCCCCC");
+////            }
+////        });
+//        
+//        if (args == null || args.length < 2) {
+//            System.err.println("No user or host or command provided.");
+//            System.err.println("jsshexec user[:password]@hostname command");
+//            System.exit(1);
+//        }
+//        String user = null, password = "";
+//        String host = args[0];
+//        String command = StringUtils.trimToEmpty(args[1]);
+//        int userPosIndex = -1;
+//        if ((userPosIndex = host.indexOf('@')) > 0) {
+//            user = host.substring(0, userPosIndex);
+//            host = StringUtils.trimToEmpty(host.substring(userPosIndex + 1));
+//            if ((userPosIndex = user.indexOf(':')) > 0) {
+//                password = user.substring(userPosIndex + 1);
+//                user = user.substring(0, userPosIndex);
+//            }
+//        }
+//        user = StringUtils.trimToEmpty(user);
+//        host = StringUtils.trimToEmpty(host);
+//        if (user.isEmpty() || host.isEmpty() || command.isEmpty()) {
+//            System.err.println("No user or host or command provided.");
+//            System.err.println("jsshexec user:password@hostname command");
+//            System.exit(1);
+//        }
+//        System.err.println(String.format("ssh %s@%s %s", user, host, command));
+//        
+//        if (command.startsWith("@")) {
+//            try {
+//                String tmpcmd = String.format("/tmp/%s", UUID.randomUUID());
+//                putFile(host, user, password, new FileInputStream(command.substring(1)), tmpcmd);
+//                command = String.format("chmod +x '%s' && '%s'", tmpcmd, tmpcmd);
+//            } catch (Exception e) {
+//                e.printStackTrace();
+//                System.exit(1);
+//            }
+//        }
+//        System.exit(exec2(host, user, password, command, new CmdMonitor() {
+//            @Override
+//            public void errorMessageFetched(String message) {
+//                System.err.print(message);
+//            }
+//            
+//            @Override
+//            public void outputMessageFetched(String message) {
+//                System.out.print(message);
+//            }
+//        }));
+//    }
 }

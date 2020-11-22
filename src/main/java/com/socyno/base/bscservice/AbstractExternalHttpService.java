@@ -1,6 +1,7 @@
 package com.socyno.base.bscservice;
 
 import com.google.gson.JsonElement;
+import com.socyno.base.bscmixutil.HttpUtil;
 import com.socyno.base.bscmixutil.JsonUtil;
 import com.socyno.base.bscmixutil.StringUtils;
 import com.socyno.base.bscmodel.ObjectMap;
@@ -28,8 +29,8 @@ public abstract class AbstractExternalHttpService {
         return String.format("application/x-www-form-urlencoded;charset=%s", getCharset().name().toLowerCase());
     }
     
-    protected HttpUtil getHttpUtil() {
-        return HttpUtil.getDefault();
+    protected DefaultHttpClientService getHttpUtil() {
+        return DefaultHttpClientService.getDefault();
     }
     
     public abstract String getRemoteUrl();

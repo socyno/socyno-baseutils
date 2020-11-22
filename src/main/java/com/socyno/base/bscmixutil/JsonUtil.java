@@ -93,7 +93,7 @@ public class JsonUtil {
      */
     public static boolean getJsBoolean(JsonObject data, String name) {
         JsonElement val = null;
-        if (data == null || (val = data.get(name)) == null) {
+        if (data == null || (val = data.get(name)) == null || val.isJsonNull()) {
             return false;
         }
         if (val.isJsonPrimitive() && ((JsonPrimitive) val).isBoolean()) {
@@ -107,7 +107,7 @@ public class JsonUtil {
      */
     public static String getJstring(JsonObject data, String name) {
         JsonElement val = null;
-        if (data == null || (val = data.get(name)) == null) {
+        if (data == null || (val = data.get(name)) == null || val.isJsonNull()) {
             return null;
         }
         ;
@@ -122,14 +122,14 @@ public class JsonUtil {
      */
     public static Long getJsLong(JsonObject data, String name) {
         JsonElement val = null;
-        if (data == null || (val = data.get(name)) == null) {
+        if (data == null || (val = data.get(name)) == null || val.isJsonNull()) {
             return null;
         }
         ;
         if (val.isJsonPrimitive() && ((JsonPrimitive) val).isNumber()) {
             return ((JsonPrimitive) val).getAsLong();
         }
-        return null;
+        return CommonUtil.parseLong(getJstring(data, name));
     }
     
     /**

@@ -1,6 +1,5 @@
 package com.socyno.base.bscmodel;
 
-import com.socyno.base.bscexec.MissingUserException;
 import com.socyno.base.bscexec.TenantMissingException;
 import com.socyno.base.bscmixutil.CommonUtil;
 import com.socyno.base.bscmixutil.StringUtils;
@@ -33,16 +32,8 @@ public class SessionContext {
         return null;
     }
     
-    private static AbstractUser getSysUser() {
-        AbstractUser user;
-        if ((user = getSysUserOrNull()) != null) {
-            return user;
-        }
-        throw new MissingUserException();
-    }
-    
     public static boolean hasUserSession() {
-        return getSysUserOrNull() != null;
+        return hasTokenSession();
     }
     
     public static boolean hasTokenSession() {
@@ -50,15 +41,15 @@ public class SessionContext {
     }
     
     public static Long getUserId() {
-        return getSysUser().getId();
+        return getTokenUserId();
     }
     
     public static String getUsername() {
-        return getSysUser().getUsername();
+        return getTokenUsername();
     }
     
     public static String getDisplay() {
-        return getSysUser().getDisplay();
+        return getTokenDisplay();
     }
     
     public static boolean isAdmin() {

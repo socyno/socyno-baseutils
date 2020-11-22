@@ -10,8 +10,9 @@ import org.apache.commons.io.IOUtils;
 
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.SftpException;
-import com.socyno.base.bscsshutil.AbstractDownloadHandler;
-import com.socyno.base.bscsshutil.SshClient;
+import com.socyno.base.bscmixutil.HttpUtil;
+import com.socyno.base.bscmixutil.SshClient;
+import com.socyno.base.bscmixutil.SshClient.DownloadHandler;
 
 public abstract class AbstractSftpService {
     
@@ -75,7 +76,7 @@ public abstract class AbstractSftpService {
                 getUsername(),
                 getPassword(),
                 getStoragePath(remoteFile),
-                new AbstractDownloadHandler() {
+                new DownloadHandler() {
                     @Override
                     public void process(InputStream stream) throws IOException {
                         IOUtils.copy(stream, outputStream);

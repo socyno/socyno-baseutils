@@ -26,7 +26,6 @@ import org.apache.commons.lang3.time.DateFormatUtils;
 import com.socyno.base.bscmixutil.StringUtils;
 import com.socyno.base.bscmodel.RunableWithSessionContext;
 import com.socyno.base.bscmodel.SimpleLock;
-import com.socyno.base.bscservice.AbstractLockService;
 import com.socyno.base.bscsqlutil.AbstractDao;
 
 @Slf4j
@@ -177,7 +176,7 @@ public abstract class AbstractAsyncService {
         
         @Override
         public final void exec() {
-            Boolean success = null;
+            Boolean success = false;
             FileOutputStream logsOutputStream = null;
             try {
                 File logsFile = new File(getLogfile());
@@ -185,9 +184,7 @@ public abstract class AbstractAsyncService {
                 lockService.markRunning(taskId);
                 success = execute(logsOutputStream, logsFile.getParent());
                 lockService.setResultData(taskId, dataMap);
-            } catch (Exception e) {
-                exception = e;
-                success = false;
+            } catch (Throwable e) {
                 log.error(e.toString(), e);
                 try {
                     if (logsOutputStream != null) {

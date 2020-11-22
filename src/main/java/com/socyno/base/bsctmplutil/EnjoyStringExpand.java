@@ -2,7 +2,7 @@ package com.socyno.base.bsctmplutil;
 
 import com.jfinal.template.expr.ast.Array;
 import com.socyno.base.bscmixutil.Base64Util;
-import com.socyno.base.bscservice.HttpUtil;
+import com.socyno.base.bscmixutil.HttpUtil;
 
 import java.io.UnsupportedEncodingException;
 

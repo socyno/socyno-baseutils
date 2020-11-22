@@ -1,31 +1,14 @@
 package com.socyno.base.bscservice;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
-import java.nio.charset.Charset;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Date;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import com.google.gson.JsonElement;
+import com.socyno.base.bscmixutil.CommonUtil;
+import com.socyno.base.bscmixutil.JsonUtil;
+import com.socyno.base.bscmixutil.StringUtils;
+import com.socyno.base.bscmodel.SessionContext;
 
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
-
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.http.Header;
@@ -39,38 +22,49 @@ import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.methods.RequestBuilder;
 import org.apache.http.client.utils.URLEncodedUtils;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.conn.ssl.TrustStrategy;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.ssl.SSLContextBuilder;
 
-import com.google.gson.JsonElement;
-import com.socyno.base.bscmixutil.CommonUtil;
-import com.socyno.base.bscmixutil.JsonUtil;
-import com.socyno.base.bscmixutil.StringUtils;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.Charset;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.*;
 
 @Slf4j
-public class HttpUtil {
+public class DefaultHttpClientService {
 
-	private final int DEFAULT_TIMEOUT_MS = 20000;
-	private final int DEFAULT_MAX_LOG_BODY = 1024 * 1204;
-	private final byte[] LOG_RESPONSED_DATA_SKIPPED = "--SKIPPED--".getBytes();
-	
 	@Getter
-	private static final HttpUtil Default = new HttpUtil();
+	private final static DefaultHttpClientService Default =  new DefaultHttpClientService();
+	
+	private final static int DEFAULT_TIMEOUT_MS = 20000;
+	private final static int DEFAULT_MAX_LOG_BODY = 1024 * 1204;
+	private final static byte[] LOG_RESPONSED_DATA_SKIPPED = "--SKIPPED--"
+			.getBytes();
 
 	public static String concatUrlPath(String prefix, String path) {
-		return String.format("%s/%s", StringUtils.trimToEmpty(prefix).replaceAll("[/\\s]+$", ""),
-				StringUtils.trimToEmpty(path).replaceAll("^[/\\s]+", ""));
-	}
-	
-	public static String urlEncode(String value) throws UnsupportedEncodingException {
-		return URLEncoder.encode(value, "UTF-8");
-	}
-	
+        return String.format("%s/%s", StringUtils.trimToEmpty(prefix).replaceAll("[/\\s]+$", ""),
+                StringUtils.trimToEmpty(path).replaceAll("^[/\\s]+", ""));
+    }
+    
+    public static String urlEncode(String value) throws UnsupportedEncodingException {
+        return URLEncoder.encode(value, "UTF-8");
+    }
+    
 	public static String toQueryString(Map<String, Object> params) {
 		if (params == null || params.isEmpty()) {
 			return "";
@@ -160,7 +154,16 @@ public class HttpUtil {
         }
         return params;
     }
-    
+	
+	public static List<NameValuePair> parseQueryAsPairs(String queryString) {
+        List<NameValuePair> queries;
+        if ((queries = URLEncodedUtils.parse(StringUtils.trimToEmpty(queryString),
+                Charset.forName("UTF-8"))) == null) {
+            queries = Collections.emptyList();
+        }
+        return queries;
+    }
+
 	public static Object[] fromEnumeration(Enumeration<?> enu) {
 		if (enu == null) {
 			return new Object[0];
@@ -172,7 +175,40 @@ public class HttpUtil {
 
 		return elements.toArray();
 	}
-	
+
+	protected List<NameValuePair> paramsToNameValuePairs(Map<String, Object> params) {
+		if (params == null || params.isEmpty()) {
+			return Collections.emptyList();
+		}
+		List<NameValuePair> pairs = new LinkedList<>();
+		for (Map.Entry<String, Object> p : params.entrySet()) {
+			String key = p.getKey();
+			Object val = p.getValue();
+			if (val instanceof Object[]) {
+				for (Object v : (Object[]) val) {
+					if (v == null) {
+						continue;
+					}
+					if ("Content-Type".equalsIgnoreCase(key)) {
+						pairs.add(new BasicNameValuePair(key, v.toString()));
+					}else {
+						pairs.add(new BasicNameValuePair(key, v.toString()));
+					}
+				}
+			} else if (val instanceof Collection) {
+				for (Object v : (Collection<?>) val) {
+					if (v == null) {
+						continue;
+					}
+					pairs.add(new BasicNameValuePair(key, v.toString()));
+				}
+			} else if (val != null) {
+				pairs.add(new BasicNameValuePair(key, val.toString()));
+			}
+		}
+		return pairs;
+	}
+
 	protected HttpUriRequest build(String url, String method,
             Map<String, Object> params, Map<String, Object> headers,
             HttpEntity bodyEntity, RequestConfig config) throws IOException {
@@ -224,11 +260,11 @@ public class HttpUtil {
             }
         }
         if (bodyEntity != null) {
-            InputStream bodyStream;
-            if (!"org.apache.http.entity.mime.MultipartFormEntity".equals(bodyEntity.getClass().getName()) &&
-                    (bodyStream = bodyEntity.getContent()) != null && bodyStream.markSupported()) {
-                bodyStream.reset();
-            }
+			InputStream bodyStream;
+			if (!"org.apache.http.entity.mime.MultipartFormEntity".equals(bodyEntity.getClass().getName()) &&
+					(bodyStream = bodyEntity.getContent()) != null && bodyStream.markSupported()) {
+				bodyStream.reset();
+			}
             builder.setEntity(bodyEntity);
         }
         return builder.setConfig(config).build();
@@ -308,9 +344,9 @@ public class HttpUtil {
 	public CloseableHttpResponse request(String targetUrl,
 			HttpServletRequest request, int timeout) throws IOException {
 		Map<String, Object> headers = new HashMap<>();
-		for (Enumeration<?> h = request.getHeaderNames(); 
+		for (Enumeration<String> h = request.getHeaderNames(); 
 		                        h.hasMoreElements();) {
-			String n = h.nextElement().toString();
+			String n = h.nextElement();
 			if ("Content-Length".equalsIgnoreCase(n) || "Transfer-Encoding".equalsIgnoreCase(n)) {
 			    continue;
 			}
@@ -344,7 +380,7 @@ public class HttpUtil {
 		}
 	}
 	
-	protected CloseableHttpResponse request(String url, String method,
+	private CloseableHttpResponse request(String url, String method,
             Map<String, Object> params, Map<String, Object> headers,
             InputStream bodyStream, int timeout) throws IOException {
         HttpEntity bodyEntity = null;
@@ -357,7 +393,7 @@ public class HttpUtil {
         return request(url, method, params, headers, bodyEntity, timeout);
 	}
 	
-	protected CloseableHttpResponse request(String url, String method,
+	public CloseableHttpResponse request(String url, String method,
 			Map<String, Object> params, Map<String, Object> headers,
 			HttpEntity bodyEntity, int timeout) throws IOException {
 		if (timeout <= 0) {
@@ -404,8 +440,8 @@ public class HttpUtil {
 			}
 			byte[] bodyData = null;
             InputStream bodyStream;
-            if (bodyEntity != null && !"org.apache.http.entity.mime.MultipartFormEntity".equals(bodyEntity.getClass().getName())
-                    &&(bodyStream = bodyEntity.getContent()) != null) {
+			if (bodyEntity != null && !"org.apache.http.entity.mime.MultipartFormEntity".equals(bodyEntity.getClass().getName())
+					&&(bodyStream = bodyEntity.getContent()) != null) {
 			    bodyData = LOG_RESPONSED_DATA_SKIPPED;
 			    if (bodyStream.markSupported()) {
                     int length;
@@ -422,15 +458,23 @@ public class HttpUtil {
 				respStatus = res.getStatusLine();
 				respHeaders = res.getAllHeaders();
 			}
+	        String username = null;
+	        if (SessionContext.hasTokenSession()) {
+	            String proxyuser = null;
+	            username = SessionContext.getTokenUsername();
+	            if (StringUtils.isNotBlank(proxyuser = SessionContext.getProxyUsername())) {
+	                username = String.format("%s(Proxy by %s)", username, proxyuser);
+	            }
+	        }
             log.info("HTTP request : username = {}, method = {}, url={}, configs={}, headers={}, params={}"
                     + ", body={}, respstatus = {}, respheaders={}, response={}, time={}",
-                getLogUsername(), method, url, requestConfig,
+                username, method, url, requestConfig,
                 replaceLogSensitive(JsonUtil.toJson(headers)),
                 replaceLogSensitive(JsonUtil.toJson(params)),
                 replaceLogSensitive(StringUtils.bytesToDisplay(bodyData)),
                 respStatus, respHeaders,
                 replaceLogSensitive(StringUtils.bytesToDisplay(respData)),
-                new Date().getTime() - started
+                System.currentTimeMillis() - started
             );
 		} catch (Exception e) {
 			log.warn(e.toString(), e);
@@ -441,20 +485,13 @@ public class HttpUtil {
 		}
 		return res;
 	}
-	
-	/**
-	 * 用于日志文本的过滤，便于同构复写此方法实现在日志写入前进行敏感信息的过滤
-	 */
-	protected String replaceLogSensitive (String logmesg) {
-		return logmesg;
-	}
-	
-	/**
-	 * 如在部分场景下，需要在日志中记录调用人信息，则可以重写此方法
-	 */
-	protected String getLogUsername () {
-		return null;
-	}
+    
+    /**
+     * 用于日志文本的过滤，便于同构复写此方法实现在日志写入前进行敏感信息的过滤
+     */
+    protected String replaceLogSensitive (String logmesg) {
+        return logmesg;
+    }
 
 	public CloseableHttpResponse request(String url, String method,
 			Map<String, Object> params, Map<String, Object> headers,
@@ -466,9 +503,9 @@ public class HttpUtil {
 		return request(url, method, params, headers, bodyEntity, timeout);
 	}
 
-	public static CloseableHttpResponse request(HttpUriRequest req)
+	public CloseableHttpResponse request(HttpUriRequest req)
 			throws ClientProtocolException, IOException {
-		return HttpClients.createDefault().execute(req);
+		return getHttpClient().execute(req);
 	}
 
 	public static byte[] getResponseData(@NonNull CloseableHttpResponse resp)
@@ -610,7 +647,7 @@ public class HttpUtil {
 		}
 	}
 	
-	private final static HostnameVerifier AllowAllHostnameVerifier = new HostnameVerifier() {
+	protected final HostnameVerifier AllowAllHostnameVerifier = new HostnameVerifier() {
         @Override
         public final String toString() {
             return "ALLOW_ALL";
@@ -621,12 +658,13 @@ public class HttpUtil {
             return true;
         }
     };
-    
-    protected CloseableHttpClient getHttpClient() {
+
+	protected CloseableHttpClient getHttpClient() {
         try {
             SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null, new TrustStrategy() {
                 // 默认信任所有证书
-                public boolean isTrusted(X509Certificate[] arg0, String arg1) throws CertificateException {
+                @Override
+				public boolean isTrusted(X509Certificate[] arg0, String arg1) throws CertificateException {
                     return true;
                 }
             }).build();
